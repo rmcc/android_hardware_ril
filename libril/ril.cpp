@@ -15,7 +15,16 @@
 ** limitations under the License.
 */
 
+// With code from I7500 OpenSource Project
+
+// TODO :
+// - fix network scanning
+
+
+
+
 #define LOG_TAG "RILC"
+
 
 #include <hardware_legacy/power.h>
 
@@ -60,6 +69,8 @@ namespace android {
 
 #define ANDROID_WAKE_LOCK_NAME "radio-interface"
 
+#define ANDROID_PARTIAL_WAKE_LOCK_PATH "/sys/power/wake_lock"
+#define ANDROID_WAKE_UNLOCK_PATH "/sys/power/wake_unlock"
 
 #define PROPERTY_RIL_IMPL "gsm.version.ril-impl"
 
@@ -86,7 +97,7 @@ namespace android {
 #define PRINTBUF_SIZE 8096
 
 // Enable RILC log
-#define RILC_LOG 0
+#define RILC_LOG 1
 
 #if RILC_LOG
     #define startRequest           sprintf(printBuf, "(")
@@ -386,9 +397,45 @@ dispatchString (Parcel& p, RequestInfo *pRI) {
     size_t datalen;
     size_t stringlen;
     char *string8 = NULL;
+    char **pStrings;
+    int32_t countStrings;
 
-    string8 = strdupReadString(p);
+// drakaz
+    if (pRI->pCI->requestNumber == RIL_REQUEST_SET_NETWORK_SELECTION_MANUAL) {
+      
+	startRequest;
 
+        countStrings = 2;
+        datalen = sizeof(char *) * countStrings;
+        pStrings = (char **)alloca(datalen);
+	pStrings[0] = strdupReadString(p);
+        pStrings[1] = strdup("0");
+
+    	appendPrintBuf("%s%s,", printBuf, pStrings[0]);
+    	appendPrintBuf("%s%s", printBuf, pStrings[1]);
+        
+	closeRequest;
+
+	printRequest(pRI->token, pRI->pCI->requestNumber);
+
+    	s_callbacks.onRequest(pRI->pCI->requestNumber, pStrings, datalen, pRI);  
+
+   	if (pStrings != NULL) {
+  	        for (int i = 0 ; i < 2 ; i++) {
+			#ifdef MEMSET_FREED
+			memsetString (pStrings[i]);
+			#endif
+			free(pStrings[i]);
+	        }
+
+	        #ifdef MEMSET_FREED
+		memset(pStrings, 0, datalen);
+		#endif
+ 	}
+	return;
+
+    } else {
+   	string8 = strdupReadString(p);
     startRequest;
     appendPrintBuf("%s%s", printBuf, string8);
     closeRequest;
@@ -397,12 +444,14 @@ dispatchString (Parcel& p, RequestInfo *pRI) {
     s_callbacks.onRequest(pRI->pCI->requestNumber, string8,
                        sizeof(char *), pRI);
 
-#ifdef MEMSET_FREED
+	#ifdef MEMSET_FREED
     memsetString(string8);
-#endif
+	#endif
 
     free(string8);
     return;
+    }
+    
 invalid:
     invalidCommandBlock(pRI);
     return;
@@ -415,6 +464,7 @@ dispatchStrings (Parcel &p, RequestInfo *pRI) {
     status_t status;
     size_t datalen;
     char **pStrings;
+    char **trash;
 
     status = p.readInt32 (&countStrings);
 
@@ -431,14 +481,38 @@ dispatchStrings (Parcel &p, RequestInfo *pRI) {
         pStrings = NULL;
         datalen = 0;
     } else {
+        if (pRI->pCI->requestNumber == RIL_REQUEST_SETUP_DATA_CALL) {
+            countStrings = 3;
+        }
+        
         datalen = sizeof(char *) * countStrings;
 
         pStrings = (char **)alloca(datalen);
 
+        if (pRI->pCI->requestNumber == RIL_REQUEST_SETUP_DATA_CALL) {
+        LOGI("Converting REQUEST_SETUP_DATA_CALL request from Cupcake");
+            trash = (char **)alloca(datalen);
+	    trash[0] = strdupReadString(p);
+	    trash[0] = strdupReadString(p);
+            free(trash[0]);
+	    pStrings[0] = strdupReadString(p);
+	    pStrings[1] = strdupReadString(p);
+	    pStrings[2] = strdupReadString(p);
+            if (pStrings[1] == NULL) {
+		pStrings[1] = strdup("");
+	    }
+            if (pStrings[2] == NULL) {
+ 	        pStrings[2] = strdup("");
+            }
+    	    appendPrintBuf("%s%s,", printBuf, pStrings[0]);
+    	    appendPrintBuf("%s%s,", printBuf, pStrings[1]);
+    	    appendPrintBuf("%s%s,", printBuf, pStrings[2]);
+        } else {
         for (int i = 0 ; i < countStrings ; i++) {
             pStrings[i] = strdupReadString(p);
             appendPrintBuf("%s%s,", printBuf, pStrings[i]);
         }
+    }
     }
     removeLastChar;
     closeRequest;
@@ -1234,6 +1308,7 @@ responseInts(Parcel &p, void *response, size_t responselen) {
     return 0;
 }
 
+
 /** response is a char **, pointing to an array of char *'s */
 static int responseStrings(Parcel &p, void *response, size_t responselen) {
     int numStrings;
@@ -1285,6 +1360,7 @@ static int responseString(Parcel &p, void *response, size_t responselen) {
 }
 
 static int responseVoid(Parcel &p, void *response, size_t responselen) {
+		
     startResponse;
     removeLastChar;
     return 0;
@@ -1293,25 +1369,45 @@ static int responseVoid(Parcel &p, void *response, size_t responselen) {
 static int responseCallList(Parcel &p, void *response, size_t responselen) {
     int num;
 
+//drakaz : call patch, which convert the response from the libsec-ril in Cupcake data format to an Eclair data format for GET_CURRENT_CALLS ril call
+typedef struct {
+    RIL_CallState   state;
+    int             index;      /* GSM Index for use with, eg, AT+CHLD */
+    int             toa;        /* type of address, eg 145 = intl */
+    char            isMpty;     /* nonzero if is mpty call */
+    char            isMT;       /* nonzero if call is mobile terminated */
+    char            als;        /* ALS line indicator if available 
+                                   (0 = line 1) */
+    char            isVoice;    /* nonzero if this is is a voice call */
+
+    char *          number;     /* phone number */
+    char            numberPresentation; /* 0 = Allowed, 
+                                           1 = Restricted,
+                                           2 = Not Specified/Unknown, 
+                                           3 = Payphone */
+} RIL_Call_Cupcake;
+
     if (response == NULL && responselen != 0) {
         LOGE("invalid response: NULL");
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
-    if (responselen % sizeof (RIL_Call *) != 0) {
+    if (responselen % sizeof (RIL_Call_Cupcake *) != 0) {
         LOGE("invalid response length %d expected multiple of %d\n",
-            (int)responselen, (int)sizeof (RIL_Call *));
+            (int)responselen, (int)sizeof (RIL_Call_Cupcake *));
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
     startResponse;
     /* number of call info's */
-    num = responselen / sizeof(RIL_Call *);
+    num = responselen / sizeof(RIL_Call_Cupcake *);
     p.writeInt32(num);
 
     for (int i = 0 ; i < num ; i++) {
-        RIL_Call *p_cur = ((RIL_Call **) response)[i];
+        RIL_Call_Cupcake *p_cur = ((RIL_Call_Cupcake **) response)[i];
         /* each call info */
+
+	LOGI("Converting GET_CURRENT_CALLS response for Cupcake");
         p.writeInt32(p_cur->state);
         p.writeInt32(p_cur->index);
         p.writeInt32(p_cur->toa);
@@ -1319,29 +1415,25 @@ static int responseCallList(Parcel &p, void *response, size_t responselen) {
         p.writeInt32(p_cur->isMT);
         p.writeInt32(p_cur->als);
         p.writeInt32(p_cur->isVoice);
-        p.writeInt32(p_cur->isVoicePrivacy);
-        writeStringToParcel(p, p_cur->number);
+	p.writeInt32(0);
+        writeStringToParcel (p, p_cur->number);
         p.writeInt32(p_cur->numberPresentation);
-        writeStringToParcel(p, p_cur->name);
-        p.writeInt32(p_cur->namePresentation);
-        appendPrintBuf("%s[id=%d,%s,toa=%d,",
+	writeStringToParcel (p, p_cur->number);
+        p.writeInt32(p_cur->numberPresentation);
+	
+       appendPrintBuf("%s[%s,id=%d,toa=%d,%s,%s,als=%d,%s,%s,cli=%d,%s,cli=%d],", 
             printBuf,
-            p_cur->index,
             callStateToString(p_cur->state),
-            p_cur->toa);
-        appendPrintBuf("%s%s,%s,als=%d,%s,%s,",
-            printBuf,
-            (p_cur->isMpty)?"conf":"norm",
+            p_cur->index, p_cur->toa,
+            (p_cur->isMpty)?"mpty":"norm",
             (p_cur->isMT)?"mt":"mo",
             p_cur->als,
             (p_cur->isVoice)?"voc":"nonvoc",
-            (p_cur->isVoicePrivacy)?"evp":"noevp");
-        appendPrintBuf("%s%s,cli=%d,name='%s',%d]",
-            printBuf,
-            p_cur->number,
+            (char*)p_cur->number,
             p_cur->numberPresentation,
-            p_cur->name,
-            p_cur->namePresentation);
+       	    (char*)p_cur->number,
+            p_cur->numberPresentation);
+       
     }
     removeLastChar;
     closeResponse;
@@ -1355,21 +1447,31 @@ static int responseSMS(Parcel &p, void *response, size_t responselen) {
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
-    if (responselen != sizeof (RIL_SMS_Response) ) {
+// Drakaz :  SMS SEND Response patch, which convert the response from the libsec-ril in Cupcake data format to an Eclair data format for SEND_SMS ril call
+
+typedef struct {
+    int messageRef;   /* TP-Message-Reference for GSM,
+                         and BearerData MessageId for CDMA
+                         (See 3GPP2 C.S0015-B, v2.0, table 4.5-1). */
+    char *ackPDU;     /* or NULL if n/a */
+} RIL_SMS_Response_Cupcake;
+
+    if (responselen != sizeof (RIL_SMS_Response_Cupcake)) {
         LOGE("invalid response length %d expected %d",
-                (int)responselen, (int)sizeof (RIL_SMS_Response));
+                (int)responselen, (int)sizeof (RIL_SMS_Response_Cupcake));
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
-    RIL_SMS_Response *p_cur = (RIL_SMS_Response *) response;
+    RIL_SMS_Response_Cupcake *p_cur = (RIL_SMS_Response_Cupcake *) response;
 
     p.writeInt32(p_cur->messageRef);
     writeStringToParcel(p, p_cur->ackPDU);
-    p.writeInt32(p_cur->errorCode);
+// Fix error code
+    p.writeInt32(-1);
 
     startResponse;
-    appendPrintBuf("%s%d,%s,%d", printBuf, p_cur->messageRef,
-        (char*)p_cur->ackPDU, p_cur->errorCode);
+    appendPrintBuf("%s%d,%s", printBuf, p_cur->messageRef,
+        (char*)p_cur->ackPDU);
     closeResponse;
 
     return 0;
@@ -1396,13 +1498,15 @@ static int responseDataCallList(Parcel &p, void *response, size_t responselen)
     int i;
     for (i = 0; i < num; i++) {
         p.writeInt32(p_cur[i].cid);
-        p.writeInt32(p_cur[i].active);
+	int active = p_cur[i].active;
+	if(active==1) active = 2;
+        p.writeInt32(active);
         writeStringToParcel(p, p_cur[i].type);
         writeStringToParcel(p, p_cur[i].apn);
         writeStringToParcel(p, p_cur[i].address);
         appendPrintBuf("%s[cid=%d,%s,%s,%s,%s],", printBuf,
             p_cur[i].cid,
-            (p_cur[i].active==0)?"down":"up",
+            (active==0)?"down":"up",
             (char*)p_cur[i].type,
             (char*)p_cur[i].apn,
             (char*)p_cur[i].address);
@@ -1796,11 +1900,12 @@ static int responseRilSignalStrength(Parcel &p,
 }
 
 static int responseCallRing(Parcel &p, void *response, size_t responselen) {
-    if ((response == NULL) || (responselen == 0)) {
+    /*if ((response == NULL) || (responselen == 0)) {
         return responseVoid(p, response, responselen);
     } else {
         return responseCdmaSignalInfoRecord(p, response, responselen);
-    }
+    }*/
+    return responseVoid(p, NULL, 0);
 }
 
 static int responseCdmaSignalInfoRecord(Parcel &p, void *response, size_t responselen) {
@@ -1886,6 +1991,90 @@ static void rilEventAddWakeup(struct ril_event *ev) {
     triggerEvLoop();
 }
 
+typedef enum {
+    SIM_ABSENT = 0,
+    SIM_NOT_READY = 1,
+    SIM_READY = 2,         /* SIM_READY means the radio state is RADIO_STATE_SIM_READY. */
+    SIM_PIN = 3,
+    SIM_PUK = 4,
+    SIM_NETWORK_PERSONALIZATION = 5
+} SIM_Status_Cupcake; 
+
+/**
+ * Get the current card status.
+ *
+ * This must be freed using freeCardStatus.
+ * @return: On success returns RIL_E_SUCCESS.
+ */
+static int getCardStatus(RIL_CardStatus **pp_card_status, SIM_Status_Cupcake sim_status) {
+    static RIL_AppStatus app_status_array[] = {
+        /* SIM_ABSENT = 0 */
+        { RIL_APPTYPE_UNKNOWN, RIL_APPSTATE_UNKNOWN, RIL_PERSOSUBSTATE_UNKNOWN,
+          NULL, NULL, 0, RIL_PINSTATE_UNKNOWN, RIL_PINSTATE_UNKNOWN },
+        /* SIM_NOT_READY = 1 */
+        { RIL_APPTYPE_SIM, RIL_APPSTATE_DETECTED, RIL_PERSOSUBSTATE_UNKNOWN,
+          NULL, NULL, 0, RIL_PINSTATE_UNKNOWN, RIL_PINSTATE_UNKNOWN },
+        /* SIM_READY = 2 */
+        { RIL_APPTYPE_SIM, RIL_APPSTATE_READY, RIL_PERSOSUBSTATE_READY,
+          NULL, NULL, 0, RIL_PINSTATE_UNKNOWN, RIL_PINSTATE_UNKNOWN },
+        /* SIM_PIN = 3 */
+        { RIL_APPTYPE_SIM, RIL_APPSTATE_PIN, RIL_PERSOSUBSTATE_UNKNOWN,
+          NULL, NULL, 0, RIL_PINSTATE_ENABLED_NOT_VERIFIED, RIL_PINSTATE_UNKNOWN },
+        /* SIM_PUK = 4 */
+        { RIL_APPTYPE_SIM, RIL_APPSTATE_PUK, RIL_PERSOSUBSTATE_UNKNOWN,
+          NULL, NULL, 0, RIL_PINSTATE_ENABLED_BLOCKED, RIL_PINSTATE_UNKNOWN },
+        /* SIM_NETWORK_PERSONALIZATION = 5 */
+        { RIL_APPTYPE_SIM, RIL_APPSTATE_SUBSCRIPTION_PERSO, RIL_PERSOSUBSTATE_SIM_NETWORK,
+          NULL, NULL, 0, RIL_PINSTATE_ENABLED_NOT_VERIFIED, RIL_PINSTATE_UNKNOWN }
+    };
+    RIL_CardState card_state;
+    int num_apps;
+
+    if (sim_status == SIM_ABSENT) {
+        card_state = RIL_CARDSTATE_ABSENT;
+        num_apps = 0;
+    } else {
+        card_state = RIL_CARDSTATE_PRESENT;
+        num_apps = 1;
+    }
+
+    /* Allocate and initialize base card status. */
+    RIL_CardStatus *p_card_status = (RIL_CardStatus *)malloc(sizeof(RIL_CardStatus));
+    p_card_status->card_state = card_state;
+    p_card_status->universal_pin_state = RIL_PINSTATE_UNKNOWN;
+    p_card_status->gsm_umts_subscription_app_index = RIL_CARD_MAX_APPS;
+    p_card_status->cdma_subscription_app_index = RIL_CARD_MAX_APPS;
+    p_card_status->num_applications = num_apps;
+
+    /* Initialize application status. */
+    int i;
+    for (i = 0; i < RIL_CARD_MAX_APPS; i++) {
+        p_card_status->applications[i] = app_status_array[SIM_ABSENT];
+    }
+
+    /* Pickup the appropriate application status
+       that reflects sim_status for gsm. */
+    if (num_apps != 0) {
+        /* Only support one app, gsm. */
+        p_card_status->num_applications = 1;
+        p_card_status->gsm_umts_subscription_app_index = 0;
+
+        /* Get the correct app status. */
+        p_card_status->applications[0] = app_status_array[sim_status];
+    }
+
+    *pp_card_status = p_card_status;
+    return RIL_E_SUCCESS;
+}
+
+/**
+ * Free the card status returned by getCardStatus.
+ */
+static void freeCardStatus(RIL_CardStatus *p_card_status) {
+    free(p_card_status);
+}
+
+// Musty sim status patch
 static int responseSimStatus(Parcel &p, void *response, size_t responselen) {
     int i;
 
@@ -1900,7 +2089,10 @@ static int responseSimStatus(Parcel &p, void *response, size_t responselen) {
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
-    RIL_CardStatus *p_cur = ((RIL_CardStatus *) response);
+    int sim_status = *((int *) response);
+        
+    RIL_CardStatus *p_cur = NULL;
+    getCardStatus(&p_cur, (SIM_Status_Cupcake)sim_status);
 
     p.writeInt32(p_cur->card_state);
     p.writeInt32(p_cur->universal_pin_state);
@@ -1932,6 +2124,9 @@ static int responseSimStatus(Parcel &p, void *response, size_t responselen) {
                 p_cur->applications[i].pin2);
     }
     closeResponse;
+
+    if(p_cur != NULL)
+    	freeCardStatus(p_cur);
 
     return 0;
 }
@@ -2620,6 +2815,17 @@ RIL_onRequestComplete(RIL_Token t, RIL_Errno e, void *response, size_t responsel
         p.writeInt32 (pRI->token);
         errorOffset = p.dataPosition();
 
+	// Musty GET_NEIGHBORING_CELL_IDS patch
+	if(pRI->pCI->requestNumber == RIL_REQUEST_GET_NEIGHBORING_CELL_IDS && e!=RIL_E_SUCCESS) {
+		e = RIL_E_SUCCESS;
+		p.writeInt32 (e);  //error code = success 
+		p.writeInt32 (0);  // cell count = 0
+	// Drakaz QUERY_AVAILABLE_NETWORKS patch
+	} else if(pRI->pCI->requestNumber == RIL_REQUEST_QUERY_AVAILABLE_NETWORKS && e!=RIL_E_SUCCESS) {
+		p.writeInt32 (RIL_E_SUCCESS);
+		ret = pRI->pCI->responseFunction(p, response, responselen);
+		
+	} else {
         p.writeInt32 (e);
 
         if (response != NULL) {
@@ -2632,10 +2838,11 @@ RIL_onRequestComplete(RIL_Token t, RIL_Errno e, void *response, size_t responsel
                 p.writeInt32 (ret);
             }
         }
+	}
 
         if (e != RIL_E_SUCCESS) {
             appendPrintBuf("%s fails by %s", printBuf, failCauseToString(e));
-        }
+	}
 
         if (s_fdCommand < 0) {
             LOGD ("RIL onRequestComplete: Command channel closed");
@@ -2648,15 +2855,50 @@ done:
 }
 
 
-static void
+/*static void
 grabPartialWakeLock() {
     acquire_wake_lock(PARTIAL_WAKE_LOCK, ANDROID_WAKE_LOCK_NAME);
-}
+}*/
 
 static void
+grabPartialWakeLock()
+{
+    int fd;
+
+    fd = open (ANDROID_PARTIAL_WAKE_LOCK_PATH, O_WRONLY);
+
+    if (fd < 0) {
+        LOGW ("Cannot open " ANDROID_PARTIAL_WAKE_LOCK_PATH);
+        return;
+    }
+
+    write (fd, ANDROID_WAKE_LOCK_NAME, strlen(ANDROID_WAKE_LOCK_NAME));
+    close (fd);
+}
+
+
+/*static void
 releaseWakeLock() {
     release_wake_lock(ANDROID_WAKE_LOCK_NAME);
+}*/
+
+static void
+releaseWakeLock()
+{
+    int fd;
+
+    fd = open (ANDROID_WAKE_UNLOCK_PATH, O_WRONLY);
+
+    if (fd < 0) {
+        LOGW ("Cannot open " ANDROID_WAKE_UNLOCK_PATH);
+        return;
+    }
+
+    write (fd, ANDROID_WAKE_LOCK_NAME, strlen(ANDROID_WAKE_LOCK_NAME));
+    close (fd);
 }
+
+
 
 /**
  * Timer callback to put us back to sleep before the default timeout
