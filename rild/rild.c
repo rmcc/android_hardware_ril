@@ -146,7 +146,7 @@ int main(int argc, char **argv)
         int           fd = open("/proc/cmdline",O_RDONLY);
 
         if (fd < 0) {
-            LOGD("could not open /proc/cmdline:%s", strerror(errno));
+            LOGE("could not open /proc/cmdline:%s", strerror(errno));
             goto OpenLib;
         }
 
@@ -155,7 +155,7 @@ int main(int argc, char **argv)
         while (len == -1 && errno == EINTR);
 
         if (len < 0) {
-            LOGD("could not read /proc/cmdline:%s", strerror(errno));
+            LOGE("could not read /proc/cmdline:%s", strerror(errno));
             close(fd);
             goto OpenLib;
         }
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
                     done = 1;
                     break;
                 }
-                LOGD("could not connect to %s socket: %s",
+                LOGE("could not connect to %s socket: %s",
                     QEMUD_SOCKET_NAME, strerror(errno));
                 if (--tries == 0)
                     break;
@@ -231,12 +231,13 @@ int main(int argc, char **argv)
             hasLibArgs = 1;
             rilLibPath = REFERENCE_RIL_PATH;
 
-            LOGD("overriding with %s %s", arg_overrides[1], arg_overrides[2]);
+            LOGE("overriding with %s %s", arg_overrides[1], arg_overrides[2]);
         }
     }
 OpenLib:
 #endif
-    switchUser();
+// drakaz : keep rild in root, allowing libsec-ril to set dns
+//    switchUser();
 
     dlHandle = dlopen(rilLibPath, RTLD_NOW);
 
