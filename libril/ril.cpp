@@ -239,6 +239,7 @@ static int responseRilSignalStrength(Parcel &p,void *response, size_t responsele
 static int responseCallRing(Parcel &p, void *response, size_t responselen);
 static int responseCdmaSignalInfoRecord(Parcel &p,void *response, size_t responselen);
 static int responseCdmaCallWaiting(Parcel &p,void *response, size_t responselen);
+static int responseGprsState(Parcel &p, void *response, size_t responselen);
 
 extern "C" const char * requestToString(int request);
 extern "C" const char * failCauseToString(RIL_Errno);
@@ -2297,6 +2298,65 @@ static int responseCdmaSms(Parcel &p, void *response, size_t responselen) {
     return 0;
 }
 
+/** This is basically a copy of responseStrings, but we explicitly change
+ * the network type so that it matches what's in the final API for Donut
+ * and Eclair */
+
+static int responseGprsState(Parcel &p, void *response, size_t responselen) {
+    int numStrings;
+
+    if (response == NULL && responselen != 0) {
+        LOGE("invalid response: NULL");
+        return RIL_ERRNO_INVALID_RESPONSE;
+    }
+    if (responselen % sizeof(char *) != 0) {
+        LOGE("invalid response length %d expected multiple of %d\n",
+            (int)responselen, (int)sizeof(char *));
+        return RIL_ERRNO_INVALID_RESPONSE;
+    }
+
+    if (response == NULL) {
+        p.writeInt32 (0);
+    } else {
+        char **p_cur = (char **) response;
+
+        numStrings = responselen / sizeof(char *);
+        p.writeInt32 (numStrings);
+
+        /* each string*/
+        startResponse;
+        for (int i = 0 ; i < numStrings ; i++) {
+	    if (i != 3) {
+            	writeStringToParcel (p, p_cur[i]);
+            	appendPrintBuf("%s%s,", printBuf, (char*)p_cur[i]);
+	    } else if (i == 3 && numStrings == 4) {
+		//LOGD("In GPRS state, my net type is %s",p_cur[i]);
+		switch(atoi(p_cur[i])) {
+			case 4:
+            			writeStringToParcel (p, "9");
+            			appendPrintBuf("%s9,", printBuf);
+				break;
+			case 5:
+            			writeStringToParcel (p, "10");
+            			appendPrintBuf("%s10,", printBuf);
+				break;
+			case 6:
+            			writeStringToParcel (p, "11");
+            			appendPrintBuf("%s11,", printBuf);
+				break;
+			default:
+            			writeStringToParcel (p, p_cur[i]);
+            			appendPrintBuf("%s%s,", printBuf, (char*)p_cur[i]);
+				break;
+		}
+	    }
+        }
+        removeLastChar;
+        closeResponse;
+    }
+    return 0;
+    return 0;
+}
 /**
  * A write on the wakeup fd is done just to pop us out of select()
  * We empty the buffer here and then ril_event will reset the timers on the
