@@ -65,7 +65,7 @@
     {RIL_REQUEST_QUERY_AVAILABLE_NETWORKS , dispatchVoid, responseStrings},
     {RIL_REQUEST_DTMF_START, dispatchString, responseVoid},
     {RIL_REQUEST_DTMF_STOP, dispatchVoid, responseVoid},
-    {RIL_REQUEST_BASEBAND_VERSION, dispatchVoid, responseString},
+    {RIL_REQUEST_BASEBAND_VERSION, dispatchVoid, responseBaseband},
     {RIL_REQUEST_SEPARATE_CONNECTION, dispatchInts, responseVoid},
     {RIL_REQUEST_SET_MUTE, dispatchInts, responseVoid},
     {RIL_REQUEST_GET_MUTE, dispatchVoid, responseInts},
