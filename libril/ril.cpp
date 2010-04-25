@@ -240,6 +240,7 @@ static int responseCallRing(Parcel &p, void *response, size_t responselen);
 static int responseCdmaSignalInfoRecord(Parcel &p,void *response, size_t responselen);
 static int responseCdmaCallWaiting(Parcel &p,void *response, size_t responselen);
 static int responseGprsState(Parcel &p, void *response, size_t responselen);
+static int responseBaseband(Parcel &p, void *response, size_t responselen);
 
 extern "C" const char * requestToString(int request);
 extern "C" const char * failCauseToString(RIL_Errno);
@@ -708,7 +709,10 @@ dispatchSIM_IO (Parcel &p, RequestInfo *pRI) {
     status = p.readInt32(&t);
     simIO.fileid = (int)t;
 
-    simIO.path = strdupReadString(p);
+    // From what I can tell, any kind of path will cause the call to fail
+    // with libril-qc... So let's just make sure we don't use any - RC
+    //simIO.path = strdupReadString(p);
+    simIO.path = NULL;
 
     status = p.readInt32(&t);
     simIO.p1 = (int)t;
@@ -2238,7 +2242,7 @@ static int responseCdmaSms(Parcel &p, void *response, size_t responselen) {
 
 /** This is basically a copy of responseStrings, but we explicitly change
  * the network type so that it matches what's in the final API for Donut
- * and Eclair */
+ * and Eclair  - RC */
 
 static int responseGprsState(Parcel &p, void *response, size_t responselen) {
     int numStrings;
@@ -2293,8 +2297,25 @@ static int responseGprsState(Parcel &p, void *response, size_t responselen) {
         closeResponse;
     }
     return 0;
+}
+
+/*
+ * This is responsString, but with a fixed response... libril-qc always returns
+ * empty for queries about its baseband version, so lets use the same string
+ * Foxconn "implanted" in the Java code - RC */
+
+static int responseBaseband(Parcel &p, void *response, size_t responselen) {
+    /* one string only */
+    char bbv[17] = "Qualcomm MSM7x25";
+    startResponse;
+    appendPrintBuf("%s%s", printBuf, bbv);
+    closeResponse;
+
+    writeStringToParcel(p, bbv);
+
     return 0;
 }
+
 /**
  * A write on the wakeup fd is done just to pop us out of select()
  * We empty the buffer here and then ril_event will reset the timers on the
