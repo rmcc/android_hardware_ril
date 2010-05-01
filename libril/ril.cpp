@@ -712,6 +712,7 @@ dispatchSIM_IO (Parcel &p, RequestInfo *pRI) {
     // From what I can tell, any kind of path will cause the call to fail
     // with libril-qc... So let's just make sure we don't use any - RC
     //simIO.path = strdupReadString(p);
+    strdupReadString(p);
     simIO.path = NULL;
 
     status = p.readInt32(&t);
