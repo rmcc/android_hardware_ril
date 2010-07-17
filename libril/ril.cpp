@@ -1440,6 +1440,8 @@ typedef struct {
                                            1 = Restricted,
                                            2 = Not Specified/Unknown, 
                                            3 = Payphone */
+    char *          name;     /* phone number */
+    char            namePresentation; 
 } RIL_Call_Cupcake;
 
     if (response == NULL && responselen != 0) {
@@ -1476,16 +1478,7 @@ typedef struct {
         writeStringToParcel(p, p_cur->name);
         p.writeInt32(p_cur->namePresentation);
         // Remove when partners upgrade to version 3
-        if ((s_callbacks.version < 3) || (p_cur->uusInfo == NULL || p_cur->uusInfo->uusData == NULL)) {
             p.writeInt32(0); /* UUS Information is absent */
-        } else {
-            RIL_UUS_Info *uusInfo = p_cur->uusInfo;
-            p.writeInt32(1); /* UUS Information is present */
-            p.writeInt32(uusInfo->uusType);
-            p.writeInt32(uusInfo->uusDcs);
-            p.writeInt32(uusInfo->uusLength);
-            p.write(uusInfo->uusData, uusInfo->uusLength);
-        }
 	
        appendPrintBuf("%s[%s,id=%d,toa=%d,%s,%s,als=%d,%s,%s,cli=%d,%s,cli=%d],", 
             printBuf,
