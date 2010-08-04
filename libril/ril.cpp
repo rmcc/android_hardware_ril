@@ -1424,7 +1424,8 @@ static int responseVoid(Parcel &p, void *response, size_t responselen) {
 static int responseCallList(Parcel &p, void *response, size_t responselen) {
     int num;
 
-//drakaz : call patch, which convert the response from the libsec-ril in Cupcake data format to an Eclair data format for GET_CURRENT_CALLS ril call
+// call patch, which converts the response from the libqc-ril in Cupcake data format 
+// to a Froyo data format for GET_CURRENT_CALLS ril call
 typedef struct {
     RIL_CallState   state;
     int             index;      /* GSM Index for use with, eg, AT+CHLD */
@@ -1440,8 +1441,6 @@ typedef struct {
                                            1 = Restricted,
                                            2 = Not Specified/Unknown, 
                                            3 = Payphone */
-    char *          name;     /* phone number */
-    char            namePresentation; 
 } RIL_Call_Cupcake;
 
     if (response == NULL && responselen != 0) {
@@ -1472,13 +1471,12 @@ typedef struct {
         p.writeInt32(p_cur->isMT);
         p.writeInt32(p_cur->als);
         p.writeInt32(p_cur->isVoice);
-	p.writeInt32(0);
+		p.writeInt32(0);
         writeStringToParcel (p, p_cur->number);
         p.writeInt32(p_cur->numberPresentation);
-        writeStringToParcel(p, p_cur->name);
-        p.writeInt32(p_cur->namePresentation);
-        // Remove when partners upgrade to version 3
-            p.writeInt32(0); /* UUS Information is absent */
+        writeStringToParcel(p, p_cur->number); /* We don't have a name */
+        p.writeInt32(p_cur->numberPresentation); /* no namePresentation either */
+        p.writeInt32(0); /* UUS Information is absent */
 	
        appendPrintBuf("%s[%s,id=%d,toa=%d,%s,%s,als=%d,%s,%s,cli=%d,%s,cli=%d],", 
             printBuf,
@@ -1673,17 +1671,23 @@ static int responseSsn(Parcel &p, void *response, size_t responselen) {
     }
 
     RIL_SuppSvcNotification *p_cur = (RIL_SuppSvcNotification *) response;
+
     p.writeInt32(p_cur->notificationType);
     p.writeInt32(p_cur->code);
     p.writeInt32(p_cur->index);
-    p.writeInt32(p_cur->type);
-    writeStringToParcel(p, p_cur->number);
+	if (p_cur->notificationType != 0) {
+        p.writeInt32(p_cur->type);
+        writeStringToParcel(p, p_cur->number);
+	} else {
+        p.writeInt32(0);
+        writeStringToParcel(p, NULL);
+	}
 
     startResponse;
     appendPrintBuf("%s%s,code=%d,id=%d,type=%d,%s", printBuf,
         (p_cur->notificationType==0)?"mo":"mt",
-         p_cur->code, p_cur->index, p_cur->type,
-        (char*)p_cur->number);
+         p_cur->code, p_cur->index, (p_cur->notificationType==0)?0:p_cur->type,
+        (p_cur->notificationType==0)?NULL:(char*)p_cur->number);
     closeResponse;
 
     return 0;
@@ -3407,6 +3411,7 @@ requestToString(int request) {
         case RIL_UNSOL_OEM_HOOK_RAW: return "UNSOL_OEM_HOOK_RAW";
         case RIL_UNSOL_RINGBACK_TONE: return "UNSOL_RINGBACK_TONE";
         case RIL_UNSOL_RESEND_INCALL_MUTE: return "UNSOL_RESEND_INCALL_MUTE";
+        case RIL_UNSOL_SUPP_SVC_NOTIFICATION: return "UNSOL_SUPP_SVC_NOTIFICATION,";
         default: return "<unknown request>";
     }
 }
