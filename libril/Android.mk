@@ -10,8 +10,8 @@ LOCAL_SRC_FILES:= \
 LOCAL_SHARED_LIBRARIES := \
     libutils \
     libbinder \
-    libcutils #\
-    #libhardware_legacy
+    libcutils \
+    libhardware_legacy
 
 LOCAL_CFLAGS :=
 

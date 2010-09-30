@@ -15,15 +15,12 @@
 ** limitations under the License.
 */
 
-//  With code from I7500 OpenSource Project
-
-// TODO :
-// - fix network scanning
-
-
+/*  With code from I7500 OpenSource Project */
 
 
 #define LOG_TAG "RILC"
+/*#define LOG_NDEBUG 0
+#define LOG_NDDEBUG 0*/
 
 
 #include <hardware_legacy/power.h>
@@ -68,9 +65,6 @@ namespace android {
 #define SOCKET_NAME_RIL_DEBUG "rild-debug"
 
 #define ANDROID_WAKE_LOCK_NAME "radio-interface"
-
-#define ANDROID_PARTIAL_WAKE_LOCK_PATH "/sys/power/wake_lock"
-#define ANDROID_WAKE_UNLOCK_PATH "/sys/power/wake_unlock"
 
 #define PROPERTY_RIL_IMPL "gsm.version.ril-impl"
 
@@ -399,45 +393,8 @@ dispatchString (Parcel& p, RequestInfo *pRI) {
     size_t datalen;
     size_t stringlen;
     char *string8 = NULL;
-    char **pStrings;
-    int32_t countStrings;
 
-// drakaz
-    if (pRI->pCI->requestNumber == RIL_REQUEST_SET_NETWORK_SELECTION_MANUAL) {
-      
-	startRequest;
-
-        countStrings = 2;
-        datalen = sizeof(char *) * countStrings;
-        pStrings = (char **)alloca(datalen);
-	pStrings[0] = strdupReadString(p);
-        pStrings[1] = strdup("0");
-
-    	appendPrintBuf("%s%s,", printBuf, pStrings[0]);
-    	appendPrintBuf("%s%s", printBuf, pStrings[1]);
-        
-	closeRequest;
-
-	printRequest(pRI->token, pRI->pCI->requestNumber);
-
-    	s_callbacks.onRequest(pRI->pCI->requestNumber, pStrings, datalen, pRI);  
-
-   	if (pStrings != NULL) {
-  	        for (int i = 0 ; i < 2 ; i++) {
-			#ifdef MEMSET_FREED
-			memsetString (pStrings[i]);
-			#endif
-			free(pStrings[i]);
-	        }
-
-	        #ifdef MEMSET_FREED
-		memset(pStrings, 0, datalen);
-		#endif
- 	}
-	return;
-
-    } else {
-   	string8 = strdupReadString(p);
+    string8 = strdupReadString(p);
     startRequest;
     appendPrintBuf("%s%s", printBuf, string8);
     closeRequest;
@@ -446,14 +403,13 @@ dispatchString (Parcel& p, RequestInfo *pRI) {
     s_callbacks.onRequest(pRI->pCI->requestNumber, string8,
                        sizeof(char *), pRI);
 
-	#ifdef MEMSET_FREED
+#ifdef MEMSET_FREED
     memsetString(string8);
-	#endif
+#endif
 
     free(string8);
     return;
-    }
-    
+
 invalid:
     invalidCommandBlock(pRI);
     return;
@@ -483,6 +439,9 @@ dispatchStrings (Parcel &p, RequestInfo *pRI) {
         pStrings = NULL;
         datalen = 0;
     } else {
+        /* SETUP_DATA_CALL (new) - radioTechnology, profile, apn,
+         *                         user, password, authType
+         * SETUP_DEFAULT_PDP (old) - apn, user, password */
         if (pRI->pCI->requestNumber == RIL_REQUEST_SETUP_DATA_CALL) {
             countStrings = 3;
         }
@@ -492,29 +451,30 @@ dispatchStrings (Parcel &p, RequestInfo *pRI) {
         pStrings = (char **)alloca(datalen);
 
         if (pRI->pCI->requestNumber == RIL_REQUEST_SETUP_DATA_CALL) {
-        LOGI("Converting REQUEST_SETUP_DATA_CALL request from Cupcake");
+        LOGI("Converting REQUEST_SETUP_DATA_CALL request to SETUP_DEFAULT_PDP");
+            /* Skip radioTech and profile, pass the rest along */
             trash = (char **)alloca(datalen);
-	    trash[0] = strdupReadString(p);
-	    trash[0] = strdupReadString(p);
+            trash[0] = strdupReadString(p);
+            trash[0] = strdupReadString(p);
             free(trash[0]);
-	    pStrings[0] = strdupReadString(p);
-	    pStrings[1] = strdupReadString(p);
-	    pStrings[2] = strdupReadString(p);
+	        pStrings[0] = strdupReadString(p);
+	        pStrings[1] = strdupReadString(p);
+	        pStrings[2] = strdupReadString(p);
             if (pStrings[1] == NULL) {
-		pStrings[1] = strdup("");
-	    }
+		        pStrings[1] = strdup("");
+	        }
             if (pStrings[2] == NULL) {
- 	        pStrings[2] = strdup("");
+ 	            pStrings[2] = strdup("");
             }
     	    appendPrintBuf("%s%s,", printBuf, pStrings[0]);
     	    appendPrintBuf("%s%s,", printBuf, pStrings[1]);
     	    appendPrintBuf("%s%s,", printBuf, pStrings[2]);
         } else {
-        for (int i = 0 ; i < countStrings ; i++) {
-            pStrings[i] = strdupReadString(p);
-            appendPrintBuf("%s%s,", printBuf, pStrings[i]);
+            for (int i = 0 ; i < countStrings ; i++) {
+                pStrings[i] = strdupReadString(p);
+                appendPrintBuf("%s%s,", printBuf, pStrings[i]);
+            }
         }
-    }
     }
     removeLastChar;
     closeRequest;
@@ -1463,7 +1423,7 @@ typedef struct {
         RIL_Call_Cupcake *p_cur = ((RIL_Call_Cupcake **) response)[i];
         /* each call info */
 
-	LOGI("Converting GET_CURRENT_CALLS response for Cupcake");
+	    LOGI("Converting GET_CURRENT_CALLS response from Cupcake");
         p.writeInt32(p_cur->state);
         p.writeInt32(p_cur->index);
         p.writeInt32(p_cur->toa);
@@ -1471,14 +1431,14 @@ typedef struct {
         p.writeInt32(p_cur->isMT);
         p.writeInt32(p_cur->als);
         p.writeInt32(p_cur->isVoice);
-		p.writeInt32(0);
-        writeStringToParcel (p, p_cur->number);
+        p.writeInt32(0);
+        writeStringToParcel(p, p_cur->number);
         p.writeInt32(p_cur->numberPresentation);
-        writeStringToParcel(p, p_cur->number); /* We don't have a name */
-        p.writeInt32(p_cur->numberPresentation); /* no namePresentation either */
+        writeStringToParcel(p, ""); /* We don't have a name */
+        p.writeInt32(2); /* name is unspecified */
         p.writeInt32(0); /* UUS Information is absent */
 	
-       appendPrintBuf("%s[%s,id=%d,toa=%d,%s,%s,als=%d,%s,%s,cli=%d,%s,cli=%d],", 
+       appendPrintBuf("%s[%s,id=%d,toa=%d,%s,%s,als=%d,%s,%s,cli=%d],", 
             printBuf,
             callStateToString(p_cur->state),
             p_cur->index, p_cur->toa,
@@ -1487,8 +1447,6 @@ typedef struct {
             p_cur->als,
             (p_cur->isVoice)?"voc":"nonvoc",
             (char*)p_cur->number,
-            p_cur->numberPresentation,
-       	    (char*)p_cur->number,
             p_cur->numberPresentation);
        
     }
@@ -1504,7 +1462,7 @@ static int responseSMS(Parcel &p, void *response, size_t responselen) {
         return RIL_ERRNO_INVALID_RESPONSE;
     }
 
-// Drakaz :  SMS SEND Response patch, which convert the response from the libsec-ril in Cupcake data format to an Eclair data format for SEND_SMS ril call
+// Drakaz :  SMS SEND Response patch, which convert the response from libril-qc-1 in Cupcake data format to a Froyo data format for SEND_SMS ril call
 
 typedef struct {
     int messageRef;   /* TP-Message-Reference for GSM,
@@ -1523,7 +1481,7 @@ typedef struct {
 
     p.writeInt32(p_cur->messageRef);
     writeStringToParcel(p, p_cur->ackPDU);
-// Fix error code
+	/* Add error code */
     p.writeInt32(-1);
 
     startResponse;
@@ -1675,19 +1633,24 @@ static int responseSsn(Parcel &p, void *response, size_t responselen) {
     p.writeInt32(p_cur->notificationType);
     p.writeInt32(p_cur->code);
     p.writeInt32(p_cur->index);
+#if 0
 	if (p_cur->notificationType != 0) {
         p.writeInt32(p_cur->type);
-        writeStringToParcel(p, p_cur->number);
+		/* This memory address definitely does NOT have a useable string... 
+        writeStringToParcel(p, p_cur->number);*/
+        writeStringToParcel(p, NULL);
 	} else {
+#endif
         p.writeInt32(0);
         writeStringToParcel(p, NULL);
-	}
+	//}
 
     startResponse;
     appendPrintBuf("%s%s,code=%d,id=%d,type=%d,%s", printBuf,
         (p_cur->notificationType==0)?"mo":"mt",
          p_cur->code, p_cur->index, (p_cur->notificationType==0)?0:p_cur->type,
-        (p_cur->notificationType==0)?NULL:(char*)p_cur->number);
+        /*(p_cur->notificationType==0)?NULL:(char*)p_cur->number);*/
+        NULL);
     closeResponse;
 
     return 0;
@@ -2947,7 +2910,7 @@ RIL_onRequestComplete(RIL_Token t, RIL_Errno e, void *response, size_t responsel
     }
 
     appendPrintBuf("[%04d]< %s",
-        pRI->token, requestToString(pRI->pCI->requestNumber));
+            pRI->token, requestToString(pRI->pCI->requestNumber));
 
     if (pRI->cancelled == 0) {
         Parcel p;
@@ -2956,30 +2919,26 @@ RIL_onRequestComplete(RIL_Token t, RIL_Errno e, void *response, size_t responsel
         p.writeInt32 (pRI->token);
         errorOffset = p.dataPosition();
 
-	// Musty GET_NEIGHBORING_CELL_IDS patch
-	if(pRI->pCI->requestNumber == RIL_REQUEST_GET_NEIGHBORING_CELL_IDS && e!=RIL_E_SUCCESS) {
-		e = RIL_E_SUCCESS;
-		p.writeInt32 (e);  //error code = success 
-		p.writeInt32 (0);  // cell count = 0
-	// Drakaz QUERY_AVAILABLE_NETWORKS patch
-	} else if(pRI->pCI->requestNumber == RIL_REQUEST_QUERY_AVAILABLE_NETWORKS && e!=RIL_E_SUCCESS) {
-		p.writeInt32 (RIL_E_SUCCESS);
-		ret = pRI->pCI->responseFunction(p, response, responselen);
-		
-	} else {
-        p.writeInt32 (e);
+        /* GET_NEIGHBORING_CELL_IDS isn't supported, so just return 0 cells */
+        if(pRI->pCI->requestNumber == RIL_REQUEST_GET_NEIGHBORING_CELL_IDS 
+                                        && e!=RIL_E_SUCCESS) {
+            e = RIL_E_SUCCESS;
+            p.writeInt32 (e);  //error code = success 
+            p.writeInt32 (0);  // cell count = 0
+        } else {
+            p.writeInt32 (e);
 
-        if (response != NULL) {
-            // there is a response payload, no matter success or not.
-            ret = pRI->pCI->responseFunction(p, response, responselen);
+            if (response != NULL) {
+                // there is a response payload, no matter success or not.
+                ret = pRI->pCI->responseFunction(p, response, responselen);
 
-            /* if an error occurred, rewind and mark it */
-            if (ret != 0) {
-                p.setDataPosition(errorOffset);
-                p.writeInt32 (ret);
+                /* if an error occurred, rewind and mark it */
+                if (ret != 0) {
+                    p.setDataPosition(errorOffset);
+                    p.writeInt32 (ret);
+                }
             }
         }
-	}
 
         if (e != RIL_E_SUCCESS) {
             appendPrintBuf("%s fails by %s", printBuf, failCauseToString(e));
@@ -2996,50 +2955,15 @@ done:
 }
 
 
-/*static void
+static void
 grabPartialWakeLock() {
     acquire_wake_lock(PARTIAL_WAKE_LOCK, ANDROID_WAKE_LOCK_NAME);
-}*/
-
-static void
-grabPartialWakeLock()
-{
-    int fd;
-
-    fd = open (ANDROID_PARTIAL_WAKE_LOCK_PATH, O_WRONLY);
-
-    if (fd < 0) {
-        LOGW ("Cannot open " ANDROID_PARTIAL_WAKE_LOCK_PATH);
-        return;
-    }
-
-    write (fd, ANDROID_WAKE_LOCK_NAME, strlen(ANDROID_WAKE_LOCK_NAME));
-    close (fd);
 }
 
-
-/*static void
+static void
 releaseWakeLock() {
     release_wake_lock(ANDROID_WAKE_LOCK_NAME);
-}*/
-
-static void
-releaseWakeLock()
-{
-    int fd;
-
-    fd = open (ANDROID_WAKE_UNLOCK_PATH, O_WRONLY);
-
-    if (fd < 0) {
-        LOGW ("Cannot open " ANDROID_WAKE_UNLOCK_PATH);
-        return;
-    }
-
-    write (fd, ANDROID_WAKE_LOCK_NAME, strlen(ANDROID_WAKE_LOCK_NAME));
-    close (fd);
 }
-
-
 
 /**
  * Timer callback to put us back to sleep before the default timeout
